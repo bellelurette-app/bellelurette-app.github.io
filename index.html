@@ -3545,7 +3545,7 @@ const AN_RECIT = BOOK.anneeRecit || BOOK.annee || 1885;
 const AUTEUR_NOM = String(BOOK.auteur || '').trim().split(/\s+/).pop() || 'L’auteur';
 const QUAND_T = BOOK.anneeRecit && BOOK.anneeRecit !== BOOK.annee ? 'quand commence ' + BOOK.titre : 'quand paraît ' + BOOK.titre;
 const deNom = (n) => (/^[aeiouyàâäéèêëîïôöùûüœæ]/i.test(String(n)) ? 'd’' : 'de ') + n;
-const colorKey = (id) => (CAST[id] && !CAST[id].fig ? id : 'fig');
+const colorKey = (id) => (CAST[id] && (!CAST[id].fig || CAST[id].voix) ? id : 'fig');   // v83 : une voix collective garde sa couleur
 const colorVar = (id) => 'var(--c-' + colorKey(id) + ')';
 const RENOMS = Array.isArray(BOOK.renoms) ? BOOK.renoms : [];   // v59 : un personnage change de nom en cours de route
 const renomAt = (id, e) => { let r = null; RENOMS.forEach((x) => { if (x.id === id && e >= (x.ep | 0) - 1) r = x; }); return r; };
@@ -16279,6 +16279,280 @@ Object.assign(AMB_FX, {
   } }
 });
 window.__v81 = { IMM, IMM_ET, immReached, fillImm, TABS, isPhoto, AN_RECIT, AUTEUR_NOM, dictLookup, openCarnet, cnGo, openGame, GAMES, showAvant, friseItems, flashPool, learnLine, openRoom, ROOMS, troveClose, closeGame, closeSheets, get trove() { return trove; }, get gameOpen() { return gameOpen; } };
+
+/* ================= Version 83 =================
+   Pot-Bouille, chapitres I à IV : les voix collectives (BOOK.personnages[id].voix, ex. « La cour », « Le chœur »)
+   sont des figurants avec leur propre couleur. Le reste vient du livre (texte, contenus, plan de la maison). */
+/* ================= Version 88 (décor du lieu : fenêtre sous le texte, colonne sur grand écran) =================
+   Choix de Guillaume après les maquettes (toile « Enfin lu · où placer l'image du lieu ») : B sur téléphone, F sur ordinateur et tablette.
+   L'image du lieu a sa propre place, nette, hors du cadre de lecture : rien ne passe derrière le texte, rien ne bouge en lisant.
+   - Téléphone (B) : une fenêtre panoramique 3:1 entre le cadre de lecture et les commandes, le nom du lieu en petites capitales.
+   - Ordinateur et tablette, à partir de 760 × 560 px (F) : une colonne à gauche du cadre, sur toute sa hauteur.
+   Livre : decors = [{ id, eps, nom, alt, cx, sy, img, fx }] (eps à partir de 0 ; img : l'image entière ; cx, sy : le centre à garder).
+   L'image passe en fondu d'un lieu à l'autre ; animations en code très douces (gaz, fumée, eau, scintillements, lettres de feu).
+   Réglage « Ambiance selon le lieu » coupé : pas d'image. Animations réduites : image fixe. */
+{
+  const st84 = document.createElement('style');
+  st84.textContent = `
+.lxbar84 { position: relative; flex: none; aspect-ratio: 3 / 1; max-height: 24vh; border-radius: 16px; overflow: hidden; background: #141018; margin: 6px 0 0; padding: 0;
+  box-shadow: 0 10px 24px -16px rgba(20,12,8,.7); }
+.lxbar84[hidden] { display: none; }
+.lxbar84 canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 1.1s ease; }
+.lxbar84 canvas.cur { opacity: 1; }
+.lxbar84 .lxn88 { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 24px 14px 9px; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(8,6,10,0), rgba(8,6,10,.72)); color: rgba(255,244,228,.95);
+  font: 600 10.5px/1.2 "Schibsted Grotesk", system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase; transition: opacity .6s ease; }
+.reader.lxf88 { position: relative; }
+.reader.lxf88 .lxbar84 { position: absolute; left: 0; margin: 0; top: var(--lxt88, 0px); height: var(--lxh88, 0px); width: var(--lxw88, 360px);
+  aspect-ratio: auto; max-height: none; border-radius: 20px; box-shadow: 0 16px 36px -22px rgba(20,12,8,.7); }
+.reader.lxf88 .lxbar84 .lxn88 { padding: 48px 20px 16px; font-size: 11px; }
+.reader.lxf88 .stage { margin-left: calc(var(--lxw88, 360px) + 22px); }
+`;
+  document.head.append(st84);
+}
+const DEC84 = Array.isArray(BOOK.decors) ? BOOK.decors.filter((d) => d && d.img && Array.isArray(d.eps)) : [];
+const decAt84 = (e) => (e == null ? null : DEC84.find((d) => d.eps.includes(e)) || null);
+const anim84 = () => S.amb !== false && !REDUCED && !document.hidden && !byId('reader').hidden;
+
+const IMG84 = new Map();
+const LIVE84 = new Set();          // scènes à l'écran (bande et images de la page)
+function img84(d) {
+  let im = IMG84.get(d.id);
+  if (!im) {
+    im = new Image(); im.decoding = 'async';
+    im.onload = () => { LIVE84.forEach((s) => { if (s.d === d) s.dirty = true; }); kick84(); };
+    im.src = d.img; IMG84.set(d.id, im);
+  }
+  return im;
+}
+const fr84 = (x) => x - Math.floor(x);
+const rnd84 = (i, j) => fr84(Math.sin(i * 12.9898 + j * 78.233) * 43758.5453);
+const vn84 = (x) => 0.5 + 0.25 * Math.sin(x * 1.7) + 0.15 * Math.sin(x * 3.1 + 1.3) + 0.1 * Math.sin(x * 7.3 + 2.1);
+
+// une scène : l'image du lieu (cadrée autour de sy), qui respire à peine, et ses effets
+function scene84(cv, d, sy) {
+  const ctx = cv.getContext('2d');
+  const im = img84(d);
+  const sc = { d, sy: sy == null ? 0.5 : sy, dirty: true, resized: true, cv };
+  let W = 0, H = 0, FIRE = null;
+  function size() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.round(cv.clientWidth * dpr)), h = Math.max(1, Math.round(cv.clientHeight * dpr));
+    if (w !== cv.width || h !== cv.height) { cv.width = w; cv.height = h; }
+    W = w; H = h; sc.resized = false;
+  }
+  function firePts(e) {
+    const tc = document.createElement('canvas'); tc.width = 600; tc.height = 110;
+    const tx = tc.getContext('2d'); tx.fillStyle = '#fff'; tx.textAlign = 'center'; tx.textBaseline = 'middle';
+    tx.font = "italic 700 66px 'Bodoni Moda', Didot, Georgia, serif";
+    const tw = Math.min(590, tx.measureText(e.text).width);
+    tx.fillText(e.text, 300, 56, 590);
+    const px = tx.getImageData(0, 0, 600, 110).data, pts = [];
+    for (let y = 2; y < 110; y += 4) for (let x = 2; x < 600; x += 4) if (px[(y * 600 + x) * 4 + 3] >= 140) pts.push([x, y, rnd84(x, y) * 40]);
+    return { pts, tw };
+  }
+  sc.refresh = () => { FIRE = null; sc.dirty = true; };
+  sc.draw = function (t) {
+    if (sc.resized || !W) size();
+    if (!im.complete || !im.naturalWidth) { ctx.fillStyle = '#141018'; ctx.fillRect(0, 0, W, H); return false; }
+    const iw = im.naturalWidth, ih = im.naturalHeight;
+    const live = t != null;
+    const tt = live ? t : 0;
+    const z = live ? 1.03 + 0.012 * Math.sin(tt * 2 * Math.PI / 52) : 1.035;
+    const s = Math.max(W / iw, H / ih) * z, dw = iw * s, dh = ih * s;
+    const cx = (d.cx == null ? 0.5 : d.cx) + (live ? 0.012 * Math.sin(tt * 2 * Math.PI / 70) : 0);
+    const dx = Math.min(0, Math.max(W - dw, W / 2 - cx * dw));
+    const dy = Math.min(0, Math.max(H - dh, H / 2 - sc.sy * dh));
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.drawImage(im, dx, dy, dw, dh);
+    if (!live) return true;
+    const X = (u) => dx + u * dw, Y = (v) => dy + v * dh, R = (r) => r * dw;
+    const blob = (x, y, r, c, a, mid) => {
+      if (a <= 0.004 || r < 0.5 || x < -r || x > W + r || y < -r || y > H + r) return;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(' + c + ',' + a + ')'); g.addColorStop(mid || 0.4, 'rgba(' + c + ',' + (a * 0.35) + ')'); g.addColorStop(1, 'rgba(' + c + ',0)');
+      ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+    };
+    (d.fx || []).forEach((e, ei) => {
+      const c = e.c || '255,200,140';
+      if (e.t === 'glow') {
+        ctx.globalCompositeOperation = 'lighter';
+        (e.p || []).forEach(([u, v], i) => blob(X(u), Y(v), R(e.r), c, e.a * (0.55 + 0.45 * vn84(tt * (e.f || 1) + i * 2.3 + ei))));
+      } else if (e.t === 'twk') {
+        ctx.globalCompositeOperation = 'lighter';
+        (e.p || []).forEach(([u, v], i) => {
+          const q = Math.max(0, Math.sin(tt * (e.f || 1) * (0.55 + rnd84(i, ei)) + rnd84(ei, i) * 6.3));
+          const a = e.a * Math.pow(q, 6);
+          if (a < 0.02) return;
+          const x = X(u), y = Y(v), r = R(e.r);
+          blob(x, y, r, c, a, 0.25);
+          ctx.strokeStyle = 'rgba(' + c + ',' + (a * 0.7) + ')'; ctx.lineWidth = Math.max(1, r * 0.12);
+          ctx.beginPath(); ctx.moveTo(x - r * 1.3, y); ctx.lineTo(x + r * 1.3, y); ctx.moveTo(x, y - r * 1.3); ctx.lineTo(x, y + r * 1.3); ctx.stroke();
+        });
+      } else if (e.t === 'smoke') {
+        ctx.globalCompositeOperation = 'source-over';
+        for (let i = 0; i < e.n; i++) {
+          const p = fr84(tt / e.life + rnd84(i, ei + 1));
+          const x = X(e.x + (rnd84(i, ei + 2) - 0.5) * e.w + (e.dx || 0) * p), y = Y(e.y - e.h * p);
+          blob(x, y, R(e.r) * (0.45 + 1.2 * p), c, e.a * Math.pow(Math.sin(Math.PI * p), 1.5), 0.5);
+        }
+      } else if (e.t === 'fog') {
+        ctx.globalCompositeOperation = 'source-over';
+        for (let i = 0; i < e.n; i++) {
+          const p = fr84(rnd84(i, ei + 3) + tt * e.sp);
+          const x = X(e.x - e.w / 2 + e.w * p), y = Y(e.y - e.h * rnd84(i, ei + 4));
+          blob(x, y, R(e.r) * (0.8 + 0.5 * rnd84(i, ei + 5)), c, e.a * Math.sin(Math.PI * p), 0.5);
+        }
+      } else if (e.t === 'water') {
+        ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+        ctx.lineWidth = Math.max(1, R(0.0022));
+        for (let i = 0; i < e.n; i++) {
+          const p = fr84(tt / e.life + rnd84(i, ei + 6));
+          const u = e.x0 + (e.x1 - e.x0) * rnd84(i, ei + 7);
+          const y = Y(e.y0 + (e.y1 - e.y0) * p * p), y2 = Y(e.y0 + (e.y1 - e.y0) * Math.max(0, p - 0.12) * Math.max(0, p - 0.12));
+          ctx.strokeStyle = 'rgba(' + c + ',' + (e.a * (1 - p * 0.7)) + ')';
+          ctx.beginPath(); ctx.moveTo(X(u), y2); ctx.lineTo(X(u), y); ctx.stroke();
+        }
+      } else if (e.t === 'fire') {
+        if (!FIRE) FIRE = firePts(e);
+        const k = R(e.w) / FIRE.tw, ox = X(e.x) - 300 * k, oy = Y(e.y) - 56 * k;
+        const fl = 0.85 + 0.15 * vn84(tt * 5);
+        ctx.globalCompositeOperation = 'lighter';
+        blob(X(e.x), Y(e.y), R(e.w) * 0.62, c, 0.20 * fl, 0.5);
+        const rr = Math.max(0.8, 2.2 * k);
+        for (const [fx2, fy2, ph] of FIRE.pts) {
+          const a = 0.55 + 0.45 * vn84(tt * 9 + ph);
+          ctx.fillStyle = 'rgba(' + c + ',' + (0.35 * a) + ')'; ctx.beginPath(); ctx.arc(ox + fx2 * k, oy + fy2 * k, rr * 1.9, 0, 7); ctx.fill();
+          ctx.fillStyle = 'rgba(255,236,190,' + (0.8 * a) + ')'; ctx.beginPath(); ctx.arc(ox + fx2 * k, oy + (fy2 - 1.2) * k, rr * 0.75, 0, 7); ctx.fill();
+        }
+      }
+    });
+    ctx.globalCompositeOperation = 'source-over';
+    return true;
+  };
+  sc.size = () => { sc.resized = true; sc.dirty = true; };
+  return sc;
+}
+// tout tourne dans une seule boucle, à 30 images par seconde, et seulement quand une scène est à l'écran
+let raf84 = 0, last84 = 0;
+function kick84() { if (!raf84) raf84 = requestAnimationFrame(tick84); }
+function tick84(now) {
+  raf84 = 0;
+  if (!LIVE84.size) return;
+  if (!anim84()) {
+    LIVE84.forEach((sc) => { if (sc.dirty) { if (sc.draw(null)) sc.dirty = false; } });
+    return;
+  }
+  if (now - last84 >= 31) { last84 = now; const t = now / 1000; LIVE84.forEach((sc) => { sc.draw(t); sc.dirty = false; }); }
+  raf84 = requestAnimationFrame(tick84);
+}
+document.addEventListener('visibilitychange', () => { LIVE84.forEach((s) => { s.dirty = true; }); kick84(); });
+const ro84 = window.ResizeObserver ? new ResizeObserver((es) => { es.forEach((en) => { const s = en.target._sc84; if (s) s.size(); }); kick84(); }) : null;
+
+
+// la fenêtre du lieu : sous le cadre de lecture (téléphone), ou dans une colonne à sa gauche (grand écran)
+const BAR84 = { el: null, cv: [], cur: -1, d: null, on: false };
+{
+  const b = el('figure', 'lxbar84'); b.hidden = true; b.setAttribute('role', 'img');
+  for (let i = 0; i < 2; i++) { const cv = document.createElement('canvas'); cv.setAttribute('aria-hidden', 'true'); b.append(cv); BAR84.cv.push(cv); }
+  BAR84.nm = el('figcaption', 'lxn88'); BAR84.nm.setAttribute('aria-hidden', 'true'); b.append(BAR84.nm);
+  BAR84.el = b; stage.after(b);
+}
+function barSet84(d) {
+  if (d && d !== BAR84.d) {
+    const old = BAR84.cur >= 0 ? BAR84.cv[BAR84.cur] : null;
+    const nx = BAR84.cur === 0 ? 1 : 0, cv = BAR84.cv[nx];
+    if (cv._sc84) LIVE84.delete(cv._sc84);
+    cv._sc84 = scene84(cv, d, d.sy); if (ro84) ro84.observe(cv);
+    if (old) { old.classList.remove('cur'); if (old._sc84) { const o = old._sc84; setTimeout(() => { if (BAR84.cv[BAR84.cur] !== old) LIVE84.delete(o); }, 900); } }
+    cv.classList.add('cur'); BAR84.cur = nx; BAR84.d = d;
+    BAR84.nm.textContent = d.nom || ''; BAR84.el.setAttribute('aria-label', d.alt || d.nom || 'Le lieu de l’épisode');
+  }
+  const on = !!d;
+  if (on !== BAR84.on) {
+    BAR84.on = on; BAR84.el.hidden = !on; place88();
+  }
+  const sc = BAR84.cur >= 0 ? BAR84.cv[BAR84.cur]._sc84 : null;
+  if (sc) { if (on) { if (!LIVE84.has(sc)) { sc.dirty = true; LIVE84.add(sc); } } else setTimeout(() => { if (!BAR84.on) BAR84.cv.forEach((c) => c._sc84 && LIVE84.delete(c._sc84)); }, 800); }
+  kick84();
+}
+// grand écran : la colonne prend la hauteur du cadre de lecture, et le cadre se décale à droite
+const WIDE88 = window.matchMedia ? window.matchMedia('(min-width: 760px) and (min-height: 560px)') : null;
+function place88() {
+  const rd = byId('reader');
+  const wide = !!(WIDE88 && WIDE88.matches && BAR84.on);
+  rd.classList.toggle('lxf88', wide);
+  if (!wide) return;
+  const w = Math.round(Math.min(440, Math.max(260, rd.clientWidth * (rd.clientHeight > rd.clientWidth ? 0.36 : 0.31))));
+  sv73(rd, '--lxw88', w + 'px');
+  sv73(rd, '--lxt88', stage.offsetTop + 'px');
+  sv73(rd, '--lxh88', stage.offsetHeight + 'px');
+}
+if (window.ResizeObserver) new ResizeObserver(() => { if (BAR84.on) place88(); }).observe(stage);
+if (WIDE88) { const f = () => place88(); if (WIDE88.addEventListener) WIDE88.addEventListener('change', f); else if (WIDE88.addListener) WIDE88.addListener(f); }
+function upd84() {
+  if (byId('reader').hidden || S.amb === false) { barSet84(null); return; }
+  let e = null; try { e = EPI[k]; } catch (_) { e = null; }
+  barSet84(decAt84(e));
+}
+let q84 = 0;
+function sched84() { if (!q84) q84 = requestAnimationFrame(() => { q84 = 0; upd84(); }); }
+if (DEC84.length) {
+  const pg = progress;
+  progress = function () { const r = pg.apply(this, arguments); sched84(); return r; };
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { BAR84.cv.forEach((c) => c._sc84 && c._sc84.refresh()); kick84(); });
+}
+window.__v84 = { fast: (ms) => { speedHack = ms; }, pause: () => { if (playing) halt(); }, get playing() { return playing; }, get ep() { try { return EPI[k]; } catch (_) { return null; } }, DEC84, decAt84, upd: upd84, BAR: BAR84, LIVE: LIVE84, startEpisode: (e, a) => startEpisode(e, a), get k() { return k; } };
+
+/* ================= Version 85 (saut d'épisode) =================
+   Changer d'épisode (barre du haut, page du livre, marque-page…) amène bien la page jusqu'au mot,
+   en mode Texte comme en Immersif.
+   Depuis la v64, la page se construit épisode par épisode, avec une hauteur estimée pour les épisodes pas encore construits.
+   Deux problèmes :
+   - en mode Texte, l'épisode visé n'était pas construit avant la mesure : la page restait où elle était ;
+   - dans les deux modes, après le saut, les épisodes situés au-dessus se construisaient peu à peu et prenaient leur vraie
+     hauteur, ce qui repoussait le texte vers le bas (souvent d'un millier de pixels) : le mot sortait de l'écran.
+   Maintenant :
+   - l'épisode visé et ses voisins sont construits avant la mesure (mode Texte, comme l'Immersif depuis la v64) ;
+   - quand un épisode qui commence au-dessus de l'écran (et où l'on n'est pas en train de lire) change de hauteur, la page défile d'autant :
+     ce qu'on lit ne bouge pas (ancrage du défilement, fait à la main car le navigateur l'a coupé pour le glissement de la page). */
+{
+  const rt85 = renderTexte;
+  renderTexte = function (j) {
+    if (pvBuilt && Array.isArray(U64) && U64.length) ensure64(j);
+    return rt85.apply(this, arguments);
+  };
+  const H85 = new WeakMap();
+  const ro85 = window.ResizeObserver ? new ResizeObserver((es) => {
+    if (!pvBuilt || !es.length) return;
+    const top = pageview.getBoundingClientRect().top;
+    const list = es.map((en) => en.target).filter((w) => w.isConnected && w._u64).sort((a, b) => a._u64.i - b._u64.i);
+    const cur = PVS[V[k]];
+    let cum = 0, d = 0;
+    list.forEach((w) => {
+      const r = w.getBoundingClientRect(), h = r.height, old = H85.get(w);
+      H85.set(w, h);
+      if (old == null || Math.abs(h - old) < 0.5) return;
+      // un épisode qui commençait au-dessus du haut de l'écran, et où l'on n'est pas en train de lire : ce qui suit ne doit pas bouger
+      if (r.top - cum < top - 1 && !(cur && w.contains(cur))) d += h - old;
+      cum += h - old;
+    });
+    // à l'arrêt, le ruban et le fond du paragraphe en cours suivent le texte qui a bougé dans la page
+    if (Math.abs(cum) >= 0.5 && !playing && (S.read === 'page' || S.read === 'texte')) { placeHighlight(); paraHL(pvPara); }
+    if (Math.abs(d) < 1 || pageview.scrollTop <= 0) return;
+    pageview.scrollTop += d;
+    pvTarget += d;
+    if (pvF64 != null) pvF64 += d;
+    if (S.read === 'texte') txTop = pageview.scrollTop;
+  }) : null;
+  const bpi85 = buildPageInto;
+  buildPageInto = function (root, map) {
+    const r = bpi85.apply(this, arguments);
+    if (root === pvIn && ro85 && Array.isArray(U64)) U64.forEach((u) => { if (u.w) ro85.observe(u.w); });
+    return r;
+  };
+}
+window.__v85 = { word: () => { const s = PVS[V[k]]; if (!s) return null; const r = s.getBoundingClientRect(), p = pageview.getBoundingClientRect(); return { conn: s.isConnected, off: Math.round(r.top - p.top), h: pageview.clientHeight, st: Math.round(pageview.scrollTop) }; } };
 
 /* ================= Démarrage ================= */
 applyTheme();
