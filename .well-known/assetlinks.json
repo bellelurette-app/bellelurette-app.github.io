@@ -1,8 +1,14 @@
-[{
-      "relation": ["delegate_permission/common.handle_all_urls"],
-      "target": {
-        "namespace": "android_app",
-        "package_name": "fr.bellelurette.app",
-        "sha256_cert_fingerprints": ["98:08:CD:50:F1:46:40:6B:67:2A:91:5E:0F:24:4E:EF:AB:BC:7C:83:C7:CA:B3:C4:6D:6C:12:18:6B:8D:28:56"]
-      }
-    }]
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "fr.enfinlu.app",
+      "sha256_cert_fingerprints": [
+        "98:08:CD:50:F1:46:40:6B:67:2A:91:5E:0F:24:4E:EF:AB:BC:7C:83:C7:CA:B3:C4:6D:6C:12:18:6B:8D:28:56"
+      ]
+    }
+  }
+]
