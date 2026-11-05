@@ -16964,6 +16964,16 @@ function place96() {
 }
 place96();
 
+/* ================= Version 99 (images des lieux sans titre) =================
+   Guillaume (5 nov.) : enlever les titres écrits sur les images des lieux (« Les grands cafés du boulevard »,
+   « La place de l'Opéra »…), pour une image épurée. Sur téléphone comme dans la colonne (tablette, ordinateur).
+   Le nom reste pour les lecteurs d'écran (description de l'image). */
+{
+  const st99 = document.createElement('style');
+  st99.textContent = `.lxbar84 .lxn88 { display: none !important; }`;
+  document.head.append(st99);
+}
+
 /* ================= Démarrage ================= */
 applyTheme();
 syncSettings();
@@ -17174,4 +17184,4 @@ boot();
 })();
 </script>
 
-<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 98 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
+<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 99 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
