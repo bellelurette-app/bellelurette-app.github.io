@@ -16974,6 +16974,73 @@ place96();
   document.head.append(st99);
 }
 
+
+/* ================= Version 101 (les images des objets d'époque et des « À savoir ») =================
+   Guillaume (5 nov.) a envoyé les images : chaque objet et certains « À savoir » ont maintenant une image
+   (tableau, photo d'époque, ou illustration créée par IA), avec sa source dessous. Champs du livre : x.img, x.imgSrc. */
+{
+  const st101 = document.createElement('style');
+  st101.textContent = `
+.im101 { margin: 0 0 14px; }
+.im101 img { display: block; width: auto; max-width: 100%; max-height: min(34vh, 260px); margin: 0 auto; border-radius: 12px;
+  object-fit: contain; box-shadow: 0 10px 26px -16px rgba(20,12,8,.65); background: var(--surface); }
+.im101 figcaption { margin: 7px auto 0; max-width: 34em; text-align: center; font: italic 400 12px/1.4 var(--f-ui, system-ui);
+  color: var(--ink); opacity: .66; text-wrap: pretty; }
+.ob-vitrine.im101v .ob-art { display: none; }
+.ob-vitrine.im101v { justify-content: center; }
+.ob-art.sm.ob-ph101 { padding: 0; overflow: hidden; aspect-ratio: 1; }
+.ob-art.sm.ob-ph101 img { display: block; width: 100%; height: 100%; object-fit: cover; }
+`;
+  document.head.append(st101);
+
+  const fig101 = (x, alt) => {
+    const f = el('figure', 'im101');
+    const im = new Image(); im.decoding = 'async'; im.src = x.img; im.alt = alt || '';
+    f.append(im);
+    if (x.imgSrc) f.append(el('figcaption', '', x.imgSrc));
+    return f;
+  };
+
+  // la carte de l'objet : l'image remplace le dessin, la date reste
+  const ob101 = GAME_BUILD.objet;
+  GAME_BUILD.objet = function (body, g) {
+    ob101(body, g);
+    const x = g && g.x;
+    if (!x || !x.img) return;
+    const v = $('.ob-vitrine', body);
+    const f = fig101(x, x.nom);
+    if (v) { v.classList.add('im101v'); v.before(f); } else body.prepend(f);
+  };
+
+  // la carte « À savoir » : l'image au-dessus du texte
+  const sv101 = GAME_BUILD.savoir;
+  GAME_BUILD.savoir = function (body, g) {
+    if (g && g.x && g.x.img) body.append(fig101(g.x, g.x.nom));
+    sv101(body, g);
+  };
+
+  // la salle des objets du musée : la vignette devient l'image, une fois l'objet découvert
+  const oa101 = objArt;
+  objArt = function (x, cls) {
+    if (x && x.img && cls === 'sm') {
+      const g = OBJ_G().find((o) => o.x === x);
+      if (g && isDone(g)) {
+        const s = el('span', 'ob-art sm ob-ph101');
+        const im = new Image(); im.decoding = 'async'; im.src = x.img; im.alt = '';
+        s.append(im);
+        return s;
+      }
+    }
+    return oa101(x, cls);
+  };
+  // crochets de test
+  window.__v101 = {
+    fig: fig101, get BOOK() { return BOOK; }, get GAMES() { return GAMES; }, get TABS() { return TABS; }, get EPS() { return EPS; },
+    get DEC() { return DEC84; }, dec: (e) => decAt84(e), get BAR() { return BAR84; }, get GALLERY() { return GALLERY; },
+    open: (g) => openGame(g), close: () => { closeGame(false); closeSheets(); }, reader: (a) => showReader(a)
+  };
+}
+
 /* ================= Démarrage ================= */
 applyTheme();
 syncSettings();
@@ -17184,4 +17251,4 @@ boot();
 })();
 </script>
 
-<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 99 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
+<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 101 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
