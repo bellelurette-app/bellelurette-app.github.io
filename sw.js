@@ -1,44 +1,116 @@
-/* Enfin lu : fonctionnement hors ligne */
-const CACHE = 'enfinlu-v101';
+/* Enfin lu : fonctionnement hors ligne, et ouverture immédiate */
+const CACHE = 'enfinlu-v102';
 const FICHIERS = ['./', 'index.html', 'manifest.webmanifest', 'catalogue.json', 'belami.json',
   'icone-180.png', 'confidentialite.html',
   'bodoni-moda-latin-opsz-normal.woff2', 'bodoni-moda-latin-ext-opsz-normal.woff2', 'bodoni-moda-latin-opsz-italic.woff2', 'bodoni-moda-latin-ext-opsz-italic.woff2', 'schibsted-grotesk-latin-wght-normal.woff2', 'schibsted-grotesk-latin-ext-wght-normal.woff2', 'spectral-latin-400-normal.woff2', 'spectral-latin-ext-400-normal.woff2', 'spectral-latin-400-italic.woff2', 'spectral-latin-ext-400-italic.woff2', 'spectral-latin-500-normal.woff2', 'spectral-latin-ext-500-normal.woff2', 'spectral-latin-500-italic.woff2', 'spectral-latin-ext-500-italic.woff2', 'spectral-latin-600-normal.woff2', 'spectral-latin-ext-600-normal.woff2', 'icone-192.png', 'icone-512.png', 'icone-masque-512.png'];
 const GARDES = new Set(FICHIERS.map((f) => f.replace('./', '')));
-// mise en cache à l'installation : toujours depuis le site, jamais depuis le cache HTTP du navigateur
-// (sinon une version neuve du service worker pouvait ranger l'ancienne page)
+// le programme de l'appli est dans un fichier nommé d'après son contenu (app-<empreinte>.js), que la page désigne :
+// un nom donné désigne toujours le même contenu, on n'a jamais besoin de le revérifier
+const PROG = /^app-[0-9a-f]+\.js$/;
+const progDe = (html) => { const m = /<script src="(app-[0-9a-f]+\.js)"><\/script>/.exec(html); return m ? m[1] : null; };
+
+// une requête « conditionnelle » : le site ne renvoie le fichier que s'il a changé (sinon 304, quelques octets)
+function conditionnelle(url, ancien) {
+  const h = {};
+  const et = ancien && ancien.headers.get('ETag'), lm = ancien && ancien.headers.get('Last-Modified');
+  if (et) h['If-None-Match'] = et;
+  if (lm) h['If-Modified-Since'] = lm;
+  return fetch(new Request(url, { cache: 'no-store', headers: h, credentials: 'same-origin' }));
+}
+async function ancienneCopie(f) {
+  const ks = (await caches.keys()).filter((k) => (k.startsWith('enfinlu-') || k.startsWith('belle-lurette-')) && k !== CACHE).reverse();
+  for (const k of ks) { const hit = await (await caches.open(k)).match(f, { ignoreSearch: true }); if (hit) return hit; }
+  return null;
+}
+async function prendre(c, f) {
+  const ancien = await ancienneCopie(f);
+  if (ancien && PROG.test(f)) return c.put(f, ancien);
+  if (ancien) {
+    try { const r = await conditionnelle(f, ancien); if (r.status === 304) return c.put(f, ancien); if (r.ok) return c.put(f, r); } catch (er) {}
+  }
+  const r = await fetch(new Request(f, { cache: 'reload' }));
+  if (!r.ok) throw new Error(f + ' ' + r.status);
+  return c.put(f, r);
+}
+
+// installation : les fichiers qui n'ont pas changé sont repris de la copie du téléphone
+// (avant, chaque mise à jour de l'appli retéléchargeait tout, dont les 5,6 Mo du livre)
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FICHIERS.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  e.waitUntil((async () => {
+    const c = await caches.open(CACHE);
+    await Promise.all(FICHIERS.map((f) => prendre(c, f)));
+    const p = progDe(await (await c.match('index.html')).text());
+    if (p) await prendre(c, p);
+    await self.skipWaiting();
+  })());
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => (k.startsWith('belle-lurette-') || k.startsWith('enfinlu-')) && k !== CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
+
+// vérification discrète d'une copie, une seule à la fois par fichier
+const enCours = new Map();
+function revalider(c, cle, hit) {
+  if (enCours.has(cle)) return enCours.get(cle);
+  const p = (async () => {
+    const res = await conditionnelle(cle, hit);
+    if (!res || res.status !== 200) return;
+    if (cle !== 'index.html') return c.put(cle, res);
+    // nouvelle page : son programme est rangé d'abord, pour que la page et le programme changent ensemble
+    const html = await res.clone().text(), p = progDe(html), avant = progDe(await hit.text());
+    if (p && !(await c.match(p))) {
+      const rp = await fetch(new Request(p, { cache: 'reload' }));
+      if (!rp.ok) return;
+      await c.put(p, rp);
+    }
+    await Promise.all([c.put('index.html', res.clone()), c.put('./', res)]);
+    if (avant && avant !== p) await c.delete(avant);
+  })().catch(() => {}).finally(() => enCours.delete(cle));
+  enCours.set(cle, p);
+  return p;
+}
+
 self.addEventListener('fetch', (e) => {
   const r = e.request;
   if (r.method !== 'GET') return;
   const u = new URL(r.url);
   if (u.origin !== location.origin) return;
   const nom = u.pathname.split('/').pop();
-  const garde = GARDES.has(nom) || nom === '';
-  // la page, le manifeste et les livres : le réseau d'abord (en revalidant, pas de copie périmée du navigateur),
-  // pour voir tout de suite un nouveau livre ou une correction ; la copie gardée est mise à jour même si la réponse arrive tard
-  if (r.mode === 'navigate' || /\.(html|json|webmanifest)$/.test(nom) || nom === '') {
-    const req = r.mode === 'navigate' ? new Request(r.url, { cache: 'no-cache', credentials: 'same-origin' }) : new Request(r, { cache: 'no-cache' });
-    const net = fetch(req);
-    e.waitUntil(net.then((res) => {
-      if (!(res && res.ok && garde)) return null;
-      return caches.open(CACHE).then((c) => Promise.all([c.put(r.url, res.clone()), r.mode === 'navigate' ? c.put('index.html', res.clone()) : null]));
-    }).catch(() => {}));
-    e.respondWith(caches.open(CACHE).then((c) => {
-      const secours = () => c.match(r, { ignoreSearch: true }).then((hit) => hit || (r.mode === 'navigate' || nom === '' ? c.match('index.html') : undefined));
-      // réseau lent : la copie du téléphone au bout de 4 s, si elle existe (la nouvelle version sera là à l'ouverture suivante)
-      const lent = new Promise((ok) => setTimeout(ok, 4000)).then(secours);
-      return Promise.race([net.then((res) => res.clone()), lent.then((hit) => hit || net.then((res) => res.clone()))])
-        .catch(() => secours().then((hit) => hit || Response.error()));
+  const page = nom === '' || nom === 'index.html';
+  // le programme : toujours la copie du téléphone (son nom change quand il change)
+  if (PROG.test(nom)) {
+    e.respondWith(caches.open(CACHE).then(async (c) => {
+      const hit = await c.match(nom);
+      if (hit) return hit;
+      const res = await fetch(r);
+      if (res.ok) e.waitUntil(c.put(nom, res.clone()).catch(() => {}));
+      return res;
     }));
     return;
   }
+  // la page, le manifeste, le catalogue et le livre de l'appli : la copie du téléphone tout de suite (l'appli s'ouvre
+  // sans attendre le réseau), puis une vérification discrète auprès du site ; une nouvelle version est rangée et
+  // sert à l'ouverture suivante
+  if (page || (GARDES.has(nom) && /\.(html|json|webmanifest)$/.test(nom))) {
+    const cle = page ? 'index.html' : nom;
+    e.respondWith(caches.open(CACHE).then(async (c) => {
+      const hit = await c.match(cle);
+      if (hit) {
+        e.waitUntil(revalider(c, cle, hit.clone()));
+        return hit;
+      }
+      // pas encore de copie : le réseau, et on range
+      const res = await fetch(r);
+      if (res.ok) e.waitUntil(Promise.all([c.put(cle, res.clone()), page ? c.put('./', res.clone()) : null]).catch(() => {}));
+      return res;
+    }).catch(() => caches.match(cle).then((hit) => hit || Response.error())));
+    return;
+  }
+  // autres pages : le réseau, comme sans service worker
+  if (r.mode === 'navigate' || /\.(html|json|webmanifest)$/.test(nom)) return;
   // polices et icônes : depuis le téléphone, puis mise à jour discrète
+  const garde = GARDES.has(nom);
   e.respondWith(caches.open(CACHE).then((c) => c.match(r, { ignoreSearch: true }).then((hit) => {
     const net = fetch(r).then((res) => { if (res && res.ok && garde) e.waitUntil(c.put(r, res.clone())); return res; }).catch(() => hit);
     return hit || net;
