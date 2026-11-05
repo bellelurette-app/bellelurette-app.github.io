@@ -5880,9 +5880,10 @@ function glideToSlot(slot, isLast) {
   if (S.read !== 'page' || pvUserScroll) return;
   const inner = $('.ee-in', slot);
   const top = slot.getBoundingClientRect().top - pvIn.getBoundingClientRect().top;
-  const h = Math.min(inner.scrollHeight, pageview.clientHeight * .5);
-  // fin du chapitre : le bandeau monte vers le haut, pour que le bilan et les boutons restent bien visibles
-  const y = isLast ? top - pageview.clientHeight * .16 : top + h / 2 - pageview.clientHeight * .4;
+  // v93 : le bandeau (bilan, Carnet des curiosités, quiz, Continuer) se place au milieu de l'écran ;
+  // plus grand que l'écran, il montre son haut
+  const vh93 = pageview.clientHeight, h = inner.scrollHeight + 10;
+  const y = h <= vh93 * .94 ? top + h / 2 - vh93 / 2 : top - vh93 * .03;
   // la hauteur finale du bandeau compte déjà (il est encore en train de se dérouler)
   const grow = Math.max(0, inner.scrollHeight - slot.offsetHeight);
   pvTarget = Math.max(0, Math.min(y, pvIn.scrollHeight + grow - pageview.clientHeight));
@@ -16283,6 +16284,14 @@ window.__v81 = { IMM, IMM_ET, immReached, fillImm, TABS, isPhoto, AN_RECIT, AUTE
 /* ================= Version 83 =================
    Pot-Bouille, chapitres I à IV : les voix collectives (BOOK.personnages[id].voix, ex. « La cour », « Le chœur »)
    sont des figurants avec leur propre couleur. Le reste vient du livre (texte, contenus, plan de la maison). */
+/* ================= Version 92 (animations des décors renforcées) =================
+   Les effets des décors sont plus forts dans le livre (Bel-Ami v32). Dans le code, un seul ajout : le paramètre v
+   (profondeur du vacillement) pour 'glow' (défaut 0,45, comme avant) et 'fire' (défaut 0,15, comme avant). */
+/* ================= Version 91 (le salon d'attente du journal, Bel-Ami ch. I ép. 7) =================
+   Un décor de plus, animé en code avec un seul effet : 'haze', un voile de fumée de tabac texturé qui sort de la porte
+   entrouverte et monte (une tuile de bruit pavable qui défile, prise dans un panache puis teintée ; boucle parfaite).
+   fx : { t:'haze', x, y, h, w0, w1, lean, box:[u0,v0,u1,v1], ts, life, a, c, tex }.
+   Décor : fixe = true → caméra fixe (ni zoom ni glissement de l'image). */
 /* ================= Version 88 (décor du lieu : fenêtre sous le texte, colonne sur grand écran) =================
    Choix de Guillaume après les maquettes (toile « Enfin lu · où placer l'image du lieu ») : B sur téléphone, F sur ordinateur et tablette.
    L'image du lieu a sa propre place, nette, hors du cadre de lecture : rien ne passe derrière le texte, rien ne bouge en lisant.
@@ -16329,6 +16338,38 @@ const fr84 = (x) => x - Math.floor(x);
 const rnd84 = (i, j) => fr84(Math.sin(i * 12.9898 + j * 78.233) * 43758.5453);
 const vn84 = (x) => 0.5 + 0.25 * Math.sin(x * 1.7) + 0.15 * Math.sin(x * 3.1 + 1.3) + 0.1 * Math.sin(x * 7.3 + 2.1);
 
+function bigTile91(h, n) {
+  n = Math.min(8, Math.max(2, n));
+  if (h.big && h.bn >= n) return h.big;
+  const tw = h.tex.naturalWidth, c = document.createElement('canvas'); c.width = c.height = tw * n;
+  const x = c.getContext('2d');
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) x.drawImage(h.tex, i * tw, j * tw);
+  h.big = c; h.bn = n; return c;
+}
+// v91 : le voile de fumée (effet 'haze') : la tuile et le masque du panache, préparés une fois par effet
+const HZ91 = new Map();
+function haze91(e, ei) {
+  let h = HZ91.get(e);
+  if (h) return h;
+  if (!e.box || !e.tex) return null;
+  const tex = new Image(); tex.decoding = 'async'; tex.onload = () => { LIVE84.forEach((s) => { s.dirty = true; }); kick84(); }; tex.src = e.tex;
+  const [b0, b1, b2, b3] = e.box, MW = 120, MH = Math.max(16, Math.round(MW * (b3 - b1) / (b2 - b0)));
+  const mc = document.createElement('canvas'); mc.width = MW; mc.height = MH;
+  const mx = mc.getContext('2d'), id = mx.createImageData(MW, MH);
+  const sm = (u) => { u = Math.min(1, Math.max(0, u)); return u * u * (3 - 2 * u); };
+  for (let j = 0; j < MH; j++) for (let i = 0; i < MW; i++) {
+    const u = b0 + (b2 - b0) * (i + 0.5) / MW, v = b1 + (b3 - b1) * (j + 0.5) / MH;
+    const yr = Math.min(1.2, Math.max(0, (e.y - v) / e.h));
+    const sg = e.w0 + (e.w1 - e.w0) * Math.pow(yr, e.k || 1.3), cx = e.x + (e.lean || 0) * yr;
+    let m = Math.exp(-0.5 * Math.pow((u - cx) / sg, 2)) * sm((yr - 0.01) / 0.13) * sm((1.05 - yr) / 0.45);
+    m *= sm(i / (MW * 0.2)) * sm((MW - 1 - i) / (MW * 0.2)) * sm(j / (MH * 0.15));
+    id.data[(j * MW + i) * 4 + 3] = Math.round(255 * m);
+  }
+  mx.putImageData(id, 0, 0);
+  h = { tex, mask: mc, oc: document.createElement('canvas'), big: null, bn: 0 };
+  HZ91.set(e, h);
+  return h;
+}
 // une scène : l'image du lieu (cadrée autour de sy), qui respire à peine, et ses effets
 function scene84(cv, d, sy) {
   const ctx = cv.getContext('2d');
@@ -16358,9 +16399,10 @@ function scene84(cv, d, sy) {
     const iw = im.naturalWidth, ih = im.naturalHeight;
     const live = t != null;
     const tt = live ? t : 0;
-    const z = live ? 1.03 + 0.012 * Math.sin(tt * 2 * Math.PI / 52) : 1.035;
+    const fixe = !!d.fixe;   // v91 : caméra fixe pour ce décor (ni zoom ni glissement)
+    const z = fixe ? 1 : live ? 1.03 + 0.012 * Math.sin(tt * 2 * Math.PI / 52) : 1.035;
     const s = Math.max(W / iw, H / ih) * z, dw = iw * s, dh = ih * s;
-    const cx = (d.cx == null ? 0.5 : d.cx) + (live ? 0.012 * Math.sin(tt * 2 * Math.PI / 70) : 0);
+    const cx = (d.cx == null ? 0.5 : d.cx) + (live && !fixe ? 0.012 * Math.sin(tt * 2 * Math.PI / 70) : 0);
     const dx = Math.min(0, Math.max(W - dw, W / 2 - cx * dw));
     const dy = Math.min(0, Math.max(H - dh, H / 2 - sc.sy * dh));
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
@@ -16377,7 +16419,7 @@ function scene84(cv, d, sy) {
       const c = e.c || '255,200,140';
       if (e.t === 'glow') {
         ctx.globalCompositeOperation = 'lighter';
-        (e.p || []).forEach(([u, v], i) => blob(X(u), Y(v), R(e.r), c, e.a * (0.55 + 0.45 * vn84(tt * (e.f || 1) + i * 2.3 + ei))));
+        (e.p || []).forEach(([u, v], i) => blob(X(u), Y(v), R(e.r), c, e.a * (1 - (e.v || 0.45) + (e.v || 0.45) * vn84(tt * (e.f || 1) + i * 2.3 + ei))));
       } else if (e.t === 'twk') {
         ctx.globalCompositeOperation = 'lighter';
         (e.p || []).forEach(([u, v], i) => {
@@ -16413,15 +16455,44 @@ function scene84(cv, d, sy) {
           ctx.strokeStyle = 'rgba(' + c + ',' + (e.a * (1 - p * 0.7)) + ')';
           ctx.beginPath(); ctx.moveTo(X(u), y2); ctx.lineTo(X(u), y); ctx.stroke();
         }
+      } else if (e.t === 'haze') {
+        // v91 : voile de fumée texturé (tuile pavable qui monte), pris dans un panache, puis teinté
+        const H91 = haze91(e, ei);
+        if (!H91) return;
+        const [b0, b1, b2, b3] = e.box;
+        const bx = X(b0), by = Y(b1), bw = X(b2) - bx, bh = Y(b3) - by;
+        if (bx > W || by > H || bx + bw < 0 || by + bh < 0) return;
+        const ow = Math.max(8, Math.min(700, Math.ceil(bw / 2))), oh = Math.max(8, Math.min(900, Math.ceil(bh / 2)));
+        const oc = H91.oc; if (oc.width !== ow || oc.height !== oh) { oc.width = ow; oc.height = oh; }
+        const ox = oc.getContext('2d'), k = ow / bw;
+        ox.globalCompositeOperation = 'source-over'; ox.globalAlpha = 1; ox.clearRect(0, 0, ow, oh);
+        if (H91.tex.complete && H91.tex.naturalWidth) {
+          const ph = fr84(tt / e.life), sw = Math.sin(2 * Math.PI * tt / e.life);
+          const lay = (ts, rise, dxs, al) => {
+            ox.globalAlpha = al;
+            const s0 = Math.max(4, ts * k), tw = H91.tex.naturalWidth;
+            // une seule copie, prise dans une grande planche de tuiles déjà raccordées : aucune ligne aux raccords
+            const nw = ow / s0, nh = oh / s0, big = bigTile91(H91, Math.ceil(Math.max(nw, nh)) + 1);
+            const sx = fr84(dxs) * tw, sy = fr84(ph * rise) * tw;
+            ox.drawImage(big, sx, sy, nw * tw, nh * tw, 0, 0, ow, oh);
+          };
+          lay(R(e.ts), 1, 0.5 + 0.035 * sw, 1);
+          lay(R(e.ts) / 2, 3, 0.2 - 0.05 * sw, 0.6);
+        }
+        ox.globalAlpha = 1;
+        ox.globalCompositeOperation = 'destination-in'; ox.drawImage(H91.mask, 0, 0, ow, oh);
+        ox.globalCompositeOperation = 'source-in'; ox.fillStyle = 'rgb(' + c + ')'; ox.fillRect(0, 0, ow, oh);
+        ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = e.a;
+        ctx.drawImage(oc, bx, by, bw, bh); ctx.globalAlpha = 1;
       } else if (e.t === 'fire') {
         if (!FIRE) FIRE = firePts(e);
         const k = R(e.w) / FIRE.tw, ox = X(e.x) - 300 * k, oy = Y(e.y) - 56 * k;
-        const fl = 0.85 + 0.15 * vn84(tt * 5);
+        const fl = 1 - (e.v || 0.15) + (e.v || 0.15) * vn84(tt * 5);
         ctx.globalCompositeOperation = 'lighter';
         blob(X(e.x), Y(e.y), R(e.w) * 0.62, c, 0.20 * fl, 0.5);
         const rr = Math.max(0.8, 2.2 * k);
         for (const [fx2, fy2, ph] of FIRE.pts) {
-          const a = 0.55 + 0.45 * vn84(tt * 9 + ph);
+          const vd = Math.min(0.8, (e.v || 0.15) * 3), a = 1 - vd + vd * vn84(tt * 9 + ph);
           ctx.fillStyle = 'rgba(' + c + ',' + (0.35 * a) + ')'; ctx.beginPath(); ctx.arc(ox + fx2 * k, oy + fy2 * k, rr * 1.9, 0, 7); ctx.fill();
           ctx.fillStyle = 'rgba(255,236,190,' + (0.8 * a) + ')'; ctx.beginPath(); ctx.arc(ox + fx2 * k, oy + (fy2 - 1.2) * k, rr * 0.75, 0, 7); ctx.fill();
         }
@@ -16534,7 +16605,7 @@ window.__v84 = { fast: (ms) => { speedHack = ms; }, pause: () => { if (playing) 
       H85.set(w, h);
       if (old == null || Math.abs(h - old) < 0.5) return;
       // un épisode qui commençait au-dessus du haut de l'écran, et où l'on n'est pas en train de lire : ce qui suit ne doit pas bouger
-      if (r.top - cum < top - 1 && !(cur && w.contains(cur))) d += h - old;
+      if (r.top - cum < top - 1 && !(cur && w.contains(cur)) && !(inter && w.querySelector('.epend.open'))) d += h - old;
       cum += h - old;
     });
     // à l'arrêt, le ruban et le fond du paragraphe en cours suivent le texte qui a bougé dans la page
@@ -16553,6 +16624,285 @@ window.__v84 = { fast: (ms) => { speedHack = ms; }, pause: () => { if (playing) 
   };
 }
 window.__v85 = { word: () => { const s = PVS[V[k]]; if (!s) return null; const r = s.getBoundingClientRect(), p = pageview.getBoundingClientRect(); return { conn: s.isConnected, off: Math.round(r.top - p.top), h: pageview.clientHeight, st: Math.round(pageview.scrollTop) }; } };
+
+/* ================= Versions 93 et 94 (ombres chinoises en plein écran, fin d'épisode au centre, barre du haut) =================
+   v94 (précision de Guillaume) : seules les animations en ombres chinoises passent en plein écran. Les lieux animés (image du
+   lieu et ses effets) restent comme en v88 : la fenêtre en bas sur téléphone, la colonne à gauche sur tablette et ordinateur.
+   Demande de Guillaume (5 nov.) :
+   - les animations en ombres chinoises prennent tout l'écran au début de l'épisode, avec « Passer », puis disparaissent :
+     elles encombraient la page. Pas de médaillon pour les revoir (v94 : « plus simple ») ;
+   - à la fin d'un épisode, le bilan (Carnet des curiosités, quiz, Continuer) se place au milieu de l'écran ;
+   - téléphone : toucher Curiosités pendant la lecture n'ouvre plus Aa (Aa ne laisse plus sa place pendant la lecture) ;
+   - ordinateur : le panneau Aa (Réglages) s'ouvre en haut, sous la barre, et non plus en bas de l'écran.
+   Ce qui se joue au début d'un épisode, une fois (S.ouv["livre:iN"]) :
+   - premier épisode d'un chapitre qui a une ouverture animée : l'ouverture en plein écran (v75), avec « Passer » ;
+   - épisode qui a une animation (vignettes du livre) : l'animation en grand, sur le décor du lieu flouté s'il y en a un ;
+   Le bandeau du chapitre et les animations dans le texte (v76-78) ne sont plus dans la page ; la fenêtre et la colonne du lieu restent.
+   Animations réduites : rien ne se lance. */
+{
+  const st93 = document.createElement('style');
+  st93.textContent = `
+.in93 { position: fixed; inset: 0; z-index: 80; background: #0b0907; overflow: hidden; color: #f4ede3; opacity: 0; transition: opacity .5s ease;
+  -webkit-tap-highlight-color: transparent; cursor: pointer; }
+.in93[hidden] { display: none; }
+.in93.on { opacity: 1; }
+.in93-bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.in93.vig .in93-bg { filter: blur(18px) brightness(.4) saturate(.9); transform: scale(1.1); }
+.in93-v { position: absolute; left: 50%; top: 50%; width: min(94vw, 1040px, calc((100vh - 150px) * 2)); aspect-ratio: 2 / 1; transform: translate(-50%, -50%);
+  border-radius: 14px; overflow: hidden; background: #211a1e; box-shadow: 0 26px 60px -22px rgba(0,0,0,.85); }
+.in93:not(.vig) .in93-v { display: none; }
+.in93-v canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.in93-v .ill-t { font-size: clamp(24px, 4vw, 46px); }
+.in93-v .ill-k { font-size: clamp(10px, 1.1vw, 13px); }
+.in93-card { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; pointer-events: none;
+  padding: 130px 24px calc(86px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to bottom, rgba(11,9,7,0), rgba(11,9,7,.55) 42%, rgba(11,9,7,.84));
+  opacity: 0; transform: translateY(10px); transition: opacity 1s ease, transform 1s ease; }
+.in93.vig .in93-card { display: none; }
+.in93.card .in93-card { opacity: 1; transform: none; }
+.in93-k { font: 600 11px/1.2 "Schibsted Grotesk", system-ui, sans-serif; letter-spacing: .32em; text-transform: uppercase; color: rgba(244,237,227,.74); }
+.in93-t { font-family: "Bodoni Moda", Didot, Georgia, serif; font-style: italic; font-size: clamp(32px, 6vw, 58px); font-variation-settings: 'opsz' 28;
+  line-height: 1.06; margin: 10px auto 0; max-width: 760px; text-wrap: balance; text-shadow: 0 2px 18px rgba(8,5,6,.7); }
+.in93-r { width: 34px; height: 1px; background: #d9a521; margin: 16px auto 0; opacity: .85; }
+.in93-p { margin-top: 12px; font: 600 10px/1.2 "Schibsted Grotesk", system-ui, sans-serif; letter-spacing: .24em; text-transform: uppercase; color: rgba(244,237,227,.55); }
+.in93-p:empty { display: none; }
+.o93-bk { position: absolute; inset: 0; width: 100%; height: 100%; display: block; filter: blur(22px) brightness(.42) saturate(.9); transform: scale(1.12); }
+.o93-bk[hidden] { display: none; }
+.in93-skip:focus-visible { outline: 2px solid rgba(244,237,227,.55); outline-offset: 2px; }
+.in93-skip:focus:not(:focus-visible) { outline: none; }
+.in93-skip { position: absolute; z-index: 2; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  font: 600 13px "Schibsted Grotesk", system-ui, sans-serif; color: rgba(244,237,227,.92); background: rgba(23,19,15,.55);
+  border: 1px solid rgba(244,237,227,.24); border-radius: 999px; padding: 9px 16px; cursor: pointer; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+/* téléphone : pendant la lecture, Aa devient invisible mais garde sa place : Curiosités ne bouge plus sous le doigt */
+.reader[data-zen="1"] .rbar > .aa { display: block; visibility: hidden; pointer-events: none; }
+/* ordinateur et tablette : le panneau Aa s'ouvre en haut, sous la barre */
+@media (min-width: 720px) and (min-height: 520px) {
+  #settingsSheet { align-items: flex-start; }
+  #settingsSheet .panel { margin-top: 68px; max-width: 640px; border-radius: 22px; max-height: calc(100% - 88px); box-shadow: 0 24px 60px -28px rgba(10,6,4,.55); }
+}
+`;
+  document.head.append(st93);
+}
+
+// ---------- ce qui s'ouvre au début d'un épisode ----------
+const key93 = (e) => BOOK.id + ':i' + e;
+function introOf93(e) {
+  if (e == null || !EPS[e]) return null;
+  const dec = S.amb !== false ? decAt84(e) : null;
+  const ci = CHAPS.findIndex((ch, i) => ch.eps && ch.eps[0] === e && ouvData(i));
+  if (ci >= 0) return { t: 'ouv', ci, e, d: dec };
+  const v = vigAt(e);
+  if (v) return { t: 'vig', v, e, d: dec };
+  return null;
+}
+// au mot j : l'ouverture à jouer (tout début d'un épisode, pas encore vue)
+function introDue93(j) {
+  if (REDUCED || !S.ouv) return null;
+  const e = EPI[j];
+  if (e == null || !EPS[e] || j > EPS[e].a + 2 || S.ouv[key93(e)]) return null;
+  return introOf93(e) ? e : null;
+}
+const epNum93 = (e) => { const ch = chapOfEp(e); return ch && ch.eps ? ch.eps.indexOf(e) + 1 : e + 1; };
+
+const IN93 = { el: null, on: null };
+{
+  const o = el('div', 'in93'); o.id = 'intro93'; o.hidden = true;
+  o.setAttribute('role', 'dialog'); o.setAttribute('aria-modal', 'true');
+  o.innerHTML = '<canvas class="in93-bg" aria-hidden="true"></canvas><div class="in93-v"><canvas aria-hidden="true"></canvas></div>'
+    + '<div class="in93-card" aria-hidden="true"><div class="in93-k"></div><div class="in93-t"></div><div class="in93-r"></div><div class="in93-p"></div></div>'
+    + '<button class="in93-skip" type="button">Passer ›</button>';
+  document.body.append(o);
+  IN93.el = o;
+  // « Passer », ou un toucher n'importe où
+  o.addEventListener('click', (ev) => { ev.stopPropagation(); if (IN93.on) IN93.on.finish(true); });
+  ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'mouseup'].forEach((t) => o.addEventListener(t, (ev) => ev.stopPropagation(), { passive: true }));
+}
+document.addEventListener('keydown', (ev) => {
+  if (!IN93.on || !IN93.el || IN93.el.hidden) return;
+  if (ev.key === 'Escape' || ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); IN93.on.finish(true); }
+}, true);
+
+function playIntro93(e, then) {
+  const it = introOf93(e);
+  if (!it || IN93.on) { if (then) then(); return false; }
+  S.ouv[key93(e)] = 1; persist();
+  stopBanners76();
+  // l'ouverture du chapitre : son plein écran à elle (v75), avec « Passer »
+  if (it.t === 'ouv') {
+    const btn = $('.o75-skip', ouvEl), lab = btn.textContent;
+    let over = false, iv = 0;
+    const end = (go) => { if (over) return; over = true; btn.textContent = lab; clearInterval(iv); IN93.on = null; paintMd93(true); if (go && then) then(); };
+    IN93.on = { e, finish: () => { if (ouvOpen) ouvOpen.finish(true); else end(true); } };
+    btn.textContent = 'Passer ›';
+    playOuverture(it.ci, () => end(true));
+    // écran large : les côtés reprennent la scène, agrandie et floutée (comme derrière les animations d'épisode)
+    if (ouvOpen && window.innerWidth / window.innerHeight > 0.7) {
+      let bk = $('.o93-bk', ouvEl);
+      if (!bk) { bk = document.createElement('canvas'); bk.className = 'o93-bk'; bk.width = 192; bk.height = 108; bk.setAttribute('aria-hidden', 'true'); ouvEl.prepend(bk); }
+      const src = $('.o75-stage canvas', ouvEl), bx = bk.getContext('2d');
+      bk.width = 192; bk.height = Math.max(60, Math.round(192 * window.innerHeight / window.innerWidth));
+      let n = 0;
+      const paint = () => {
+        if (!ouvOpen || ouvEl.hidden) return;
+        if (!(n++ % 2) && src.width) {
+          const sc = Math.max(bk.width / src.width, bk.height / src.height), dw = src.width * sc, dh = src.height * sc;
+          try { bx.drawImage(src, (bk.width - dw) / 2, (bk.height - dh) / 2, dw, dh); } catch (err) { /* rien */ }
+        }
+        requestAnimationFrame(paint);
+      };
+      bk.hidden = false;
+      requestAnimationFrame(paint);
+    } else { const bk = $('.o93-bk', ouvEl); if (bk) bk.hidden = true; }
+    // fermée sans suite (l'appli passe en arrière-plan) : on range
+    if (!over) iv = setInterval(() => { if (!ouvOpen && ouvEl.hidden) end(false); }, 600);
+    return true;
+  }
+  const o = IN93.el, bg = $('.in93-bg', o), vbox = $('.in93-v', o), vcv = $('canvas', vbox);
+  o.classList.toggle('vig', it.t === 'vig');
+  o.classList.remove('card', 'on');
+  $('.in93-k', o).textContent = 'Épisode ' + epNum93(e);
+  $('.in93-t', o).textContent = EPS[e].title || '';
+  $('.in93-p', o).textContent = it.t === 'dec' && it.d ? (it.d.nom || '') : '';
+  o.setAttribute('aria-label', 'Épisode ' + epNum93(e) + ' : ' + (EPS[e].title || '') + (it.d && it.d.alt ? '. ' + it.d.alt : ''));
+  // le fond : le décor du lieu, animé (flouté derrière une animation d'épisode)
+  let sc = null;
+  if (it.d) {
+    bg.hidden = false;
+    sc = scene84(bg, it.d, it.d.sy); bg._sc84 = sc; sc.size();
+    if (ro84) ro84.observe(bg);
+    LIVE84.add(sc);
+  } else bg.hidden = true;
+  // l'animation de l'épisode, en grand
+  let vs = null;
+  vbox.classList.remove('end');
+  vbox.querySelectorAll('.ill-end').forEach((x) => x.remove());
+  o.hidden = false;
+  if (it.t === 'vig') {
+    vbox.append(endCard78(e));
+    const w = vbox.clientWidth || 360;
+    try { vs = VIG76(vcv, Math.min(3, Math.max(1, (window.devicePixelRatio || 1) * w / 400)), it.v.id); } catch (err) { vs = null; }
+    if (vs) { try { vs.frame(REDUCED ? vs.dur : 0); } catch (err) { vs = null; } }
+    if (!vs || REDUCED) vbox.classList.add('end');
+  }
+  if (REDUCED) o.classList.add('card');
+  const DUR = REDUCED ? 4 : it.t === 'vig' ? (vs ? vs.dur + 1.9 : 3.5) : 6.5;
+  const t0 = performance.now();
+  let raf = 0, done = false;
+  const finish = (go) => {
+    if (done) return;
+    done = true; cancelAnimationFrame(raf);
+    document.removeEventListener('visibilitychange', onVis);
+    o.classList.remove('on');
+    setTimeout(() => {
+      o.hidden = true; o.classList.remove('card');
+      if (sc) { LIVE84.delete(sc); if (ro84) ro84.unobserve(bg); bg._sc84 = null; }
+      IN93.on = null; paintMd93(true);
+      if (go !== false && then) then();
+    }, REDUCED ? 60 : 500);
+  };
+  const onVis = () => { if (document.hidden) finish(false); };
+  const loop = () => {
+    if (done) return;
+    const t = (performance.now() - t0) / 1000;
+    if (vs && !REDUCED) {
+      try { vs.frame(Math.min(t, vs.dur)); } catch (err) { /* rien */ }
+      if (t >= vs.dur && !vbox.classList.contains('end')) vbox.classList.add('end');
+    }
+    if (it.t === 'dec' && t >= 0.9 && !o.classList.contains('card')) o.classList.add('card');
+    if (t >= DUR) { finish(true); return; }
+    raf = requestAnimationFrame(loop);
+  };
+  IN93.on = { e, finish };
+  document.addEventListener('visibilitychange', onVis);
+  void o.offsetWidth;
+  o.classList.add('on');
+  kick84();
+  raf = requestAnimationFrame(loop);
+  try { $('.in93-skip', o).focus({ preventScroll: true }); } catch (err) { /* rien */ }
+  return true;
+}
+
+// ---------- la lecture : l'ouverture se joue au début de l'épisode, puis la lecture repart ----------
+const pl93 = play;
+{
+  const resume = () => { if (!byId('reader').hidden && !playing) pl93(); };
+  const modeOk = () => S.read === 'page' || S.read === 'rsvp';
+  play = function () {
+    if (!playing && !byId('reader').hidden && modeOk()) {
+      if (IN93.on) return;                     // l'ouverture se joue : la lecture repartira à la fin
+      const e = introDue93(k);
+      if (e != null) { playIntro93(e, resume); return; }
+    }
+    return pl93.apply(this, arguments);
+  };
+  const tk93 = tick;
+  tick = function () {
+    if (playing && modeOk() && !inter && !IN93.on && !speedHack) {
+      const e = introDue93(k);
+      if (e != null) {
+        const e0 = EPI[k], before = epPaused[e0];
+        pause(); epPaused[e0] = before;
+        render(k);
+        playIntro93(e, resume);
+        return;
+      }
+    }
+    return tk93.apply(this, arguments);
+  };
+}
+
+// v94 : pas de médaillon
+function paintMd93() {}
+
+// ---------- plus d'animations dans le texte (la fenêtre et la colonne du lieu restent) ----------
+decor77 = function () {};
+{
+  const bpi93 = buildPageInto;
+  buildPageInto = function (root) {
+    const r = bpi93.apply(this, arguments);
+    if (root && root.querySelectorAll) {
+      root.querySelectorAll('.ov76, .vg76').forEach((f) => f.remove());
+      root.querySelectorAll('p.tep.ill78').forEach((p) => p.classList.remove('ill78'));
+    }
+    return r;
+  };
+}
+
+// ---------- fin d'épisode : une fois le bandeau entièrement déroulé, il se recentre ----------
+{
+  const ee93 = endEpisode;
+  endEpisode = function (e, isLast) {
+    const r = ee93.apply(this, arguments);
+    if (S.read === 'page') setTimeout(() => {
+      const s = endSlot(e);
+      if (s && s.classList.contains('open') && !pvUserScroll && !IN93.on) glideToSlot(s, isLast);
+    }, REDUCED ? 60 : 900);
+    return r;
+  };
+}
+
+// ---------- barre du haut : un toucher qui fait revenir la barre ne doit pas tomber sur un autre bouton ----------
+{
+  let pd = null;
+  document.addEventListener('pointerdown', (ev) => {
+    const bar = ev.target && ev.target.closest ? ev.target.closest('#reader .rbar') : null;
+    pd = bar ? { b: ev.target.closest('button'), t: performance.now() } : null;
+  }, true);
+  document.addEventListener('click', (ev) => {
+    const p = pd; pd = null;
+    if (!p || performance.now() - p.t > 900 || !ev.isTrusted) return;
+    const b = ev.target && ev.target.closest ? ev.target.closest('#reader .rbar button') : null;
+    if (!b || b === p.b) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (p.b && p.b.isConnected && p.b.offsetParent !== null) p.b.click();
+  }, true);
+}
+window.__v93 = {
+  introOf: introOf93, introDue: introDue93, play: playIntro93, get on() { return IN93.on; }, key: key93,
+  get k() { return k; }, get playing() { return playing; }, get inter() { return inter; }, get read() { return S.read; },
+  seek: (j) => seek(j), go: () => play(), EPS, EPI, endSlot,
+  forget: (e) => { if (S.ouv) { delete S.ouv[key93(e)]; persist(); } }
+};
 
 /* ================= Démarrage ================= */
 applyTheme();
@@ -16764,4 +17114,4 @@ boot();
 })();
 </script>
 
-<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 88 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
+<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 94 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
