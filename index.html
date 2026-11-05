@@ -16904,6 +16904,66 @@ window.__v93 = {
   forget: (e) => { if (S.ouv) { delete S.ouv[key93(e)]; persist(); } }
 };
 
+/* ================= Versions 96 à 98 (téléphone : l'image du lieu en haut, la barre incrustée dedans) =================
+   v96 (essai) : l'image du lieu tout en haut. v97 : juste sous les points, Curiosités et marque-page dans l'image.
+   v98 (Guillaume, 5 nov.) : toute la barre du haut passe dans l'image, en haut : le retour (‹ Bel-Ami), 2/11,
+   Immersif / Texte, Curiosités, Aa et le marque-page. Le texte remonte juste sous l'image (marge minimale),
+   pour garder le plus de place à la lecture. Pendant la lecture, les mêmes icônes s'effacent qu'avant
+   (seuls Curiosités et le marque-page restent), et elles reviennent à la pause : ce sont les mêmes règles,
+   car c'est la même barre, simplement posée sur l'image.
+   Ordre sur téléphone : les points, l'image (la barre incrustée en haut, le nom du lieu en bas), le texte, les commandes.
+   Sans image (chapitre II et suivants, Pot-Bouille, « Ambiance selon le lieu » coupé) : la barre reprend sa place, sous les points.
+   Tablette et ordinateur : rien ne change (colonne à gauche, barre au-dessus du texte).
+   Pour revenir en arrière : TOP96 = false. */
+const TOP96 = true;
+{
+  const st96 = document.createElement('style');
+  st96.textContent = `
+.reader:not(.lxf88) > .lxbar84.top96 { margin: 0; }
+/* la barre posée sur l'image */
+.lxbar84 > .rbar { position: absolute; top: 0; left: 0; right: 0; z-index: 3; min-height: 0; padding: 7px 8px 0; margin: 0; }
+.lxbar84.bar98::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 64px; z-index: 2; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(8,6,10,.55), rgba(8,6,10,0)); transition: opacity .5s ease; }
+.reader[data-zen="1"] .lxbar84.bar98::before { opacity: .45; }
+.lxbar84 > .rbar > button, .lxbar84 > .rbar .mode-b {
+  height: 36px !important; min-height: 36px !important; min-width: 36px; border-radius: 999px !important; color: #f7f0e5 !important;
+  background: rgba(14,11,9,.46) !important; border: 1px solid rgba(255,244,228,.24) !important; box-shadow: 0 6px 14px -8px rgba(0,0,0,.7) !important;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); -webkit-tap-highlight-color: transparent; }
+.reader .lxbar84 > .rbar > #toCover.back44 { width: 36px; min-width: 36px; height: 36px; min-height: 36px; }
+.lxbar84 > .rbar > .aa { width: 36px; padding: 0; font-size: 17px; }
+.lxbar84 > .rbar > .bmb { width: 36px; padding: 0; }
+.lxbar84 > .rbar > .bmb.on { color: #f5c96a !important; }
+.reader .lxbar84 > .rbar > .carnet-b { padding: 0 6px 0 3px; gap: 3px; }
+.lxbar84 > .rbar .mode-b { height: 30px !important; min-height: 30px !important; padding: 0 10px 0 12px; }
+.lxbar84 > .rbar .eptitle, .lxbar84 > .rbar .eptitle .num { color: rgba(247,240,229,.92) !important; text-shadow: 0 1px 6px rgba(0,0,0,.7); }
+.lxbar84 > .rbar svg { color: inherit; }
+`;
+  document.head.append(st96);
+}
+const RBAR98 = $('.rbar', byId('reader'));
+const HOME98 = document.createComment('place de la barre (v98)');
+if (RBAR98) RBAR98.before(HOME98);
+{
+  const b = BAR84.el, dots = byId('stories');
+  if (TOP96 && b && dots) { b.classList.add('top96'); dots.after(b); }
+}
+function place96() {
+  const rd = byId('reader'), b = BAR84.el;
+  if (!RBAR98 || !b) return;
+  const inImg = !!(TOP96 && BAR84.on && !b.hidden && !rd.classList.contains('lxf88'));
+  if (inImg) { if (RBAR98.parentElement !== b) b.append(RBAR98); }
+  else if (RBAR98.parentElement === b) HOME98.after(RBAR98);
+  b.classList.toggle('bar98', inImg);
+  // l'image porte maintenant des boutons : un groupe nommé par la description du lieu, et non plus une image muette
+  b.setAttribute('role', inImg ? 'group' : 'img');
+  rd.classList.toggle('bar98', inImg);
+}
+{
+  const p88 = place88;
+  place88 = function () { const r = p88.apply(this, arguments); place96(); return r; };
+}
+place96();
+
 /* ================= Démarrage ================= */
 applyTheme();
 syncSettings();
@@ -17114,4 +17174,4 @@ boot();
 })();
 </script>
 
-<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 94 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
+<script>(function(){var p=document.querySelector("#settingsSheet .panel");if(!p)return;var v=document.createElement("p");v.id="siteVersion";v.textContent="Enfin lu · version 98 (5 nov. 2026)";v.style.cssText="margin:18px 0 4px;text-align:center;font:500 12px/1.3 var(--f-ui);color:var(--muted)";p.append(v);})();</script></body></html>
