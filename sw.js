@@ -1,9 +1,19 @@
-/* Enfin lu : fonctionnement hors ligne, et ouverture immédiate */
-const CACHE = 'enfinlu-v102';
-const FICHIERS = ['./', 'index.html', 'manifest.webmanifest', 'catalogue.json', 'belami.json',
-  'icone-180.png', 'confidentialite.html',
-  'bodoni-moda-latin-opsz-normal.woff2', 'bodoni-moda-latin-ext-opsz-normal.woff2', 'bodoni-moda-latin-opsz-italic.woff2', 'bodoni-moda-latin-ext-opsz-italic.woff2', 'schibsted-grotesk-latin-wght-normal.woff2', 'schibsted-grotesk-latin-ext-wght-normal.woff2', 'spectral-latin-400-normal.woff2', 'spectral-latin-ext-400-normal.woff2', 'spectral-latin-400-italic.woff2', 'spectral-latin-ext-400-italic.woff2', 'spectral-latin-500-normal.woff2', 'spectral-latin-ext-500-normal.woff2', 'spectral-latin-500-italic.woff2', 'spectral-latin-ext-500-italic.woff2', 'spectral-latin-600-normal.woff2', 'spectral-latin-ext-600-normal.woff2', 'icone-192.png', 'icone-512.png', 'icone-masque-512.png'];
-const GARDES = new Set(FICHIERS.map((f) => f.replace('./', '')));
+/* Enfin lu : fonctionnement hors ligne, et ouverture immédiate (version 104) */
+const CACHE = 'enfinlu-v104';
+// v104 : les images des livres ont des noms tirés de leur contenu (belami/3f2a….webp) : une image donnée ne change
+// jamais. Elles sont rangées à part, et gardées d'une version de l'appli à l'autre.
+const LIVRES = 'enfinlu-livres';
+const MEDIA = /^[0-9a-f]{16}\.(webp|png|jpg)$/;
+// v104 : ni les grandes icônes (le navigateur les prend lui-même à l'installation), ni les polices « latin-ext »
+// (caractères rares, chargées seulement si un texte en a besoin, puis gardées) : 0,7 Mo de moins à la première visite
+// la page est demandée une seule fois (« ./ ») puis rangée aussi sous « index.html »
+const FICHIERS = ['./', 'manifest.webmanifest', 'catalogue.json', 'belami.json',
+  'icone-180.png', 'icone-192.png', 'confidentialite.html',
+  'bodoni-moda-latin-opsz-normal.woff2', 'bodoni-moda-latin-opsz-italic.woff2', 'schibsted-grotesk-latin-wght-normal.woff2',
+  'spectral-latin-400-normal.woff2', 'spectral-latin-400-italic.woff2', 'spectral-latin-500-normal.woff2',
+  'spectral-latin-500-italic.woff2', 'spectral-latin-600-normal.woff2'];
+const GARDES = new Set(FICHIERS.map((f) => f.replace('./', '')).concat(['index.html']));
+const garde = (nom) => GARDES.has(nom) || /\.(woff2|png)$/.test(nom);
 // le programme de l'appli est dans un fichier nommé d'après son contenu (app-<empreinte>.js), que la page désigne :
 // un nom donné désigne toujours le même contenu, on n'a jamais besoin de le revérifier
 const PROG = /^app-[0-9a-f]+\.js$/;
@@ -17,35 +27,38 @@ function conditionnelle(url, ancien) {
   if (lm) h['If-Modified-Since'] = lm;
   return fetch(new Request(url, { cache: 'no-store', headers: h, credentials: 'same-origin' }));
 }
+const ancien = (k) => k !== CACHE && k !== LIVRES && (k.startsWith('enfinlu-') || k.startsWith('belle-lurette-'));
 async function ancienneCopie(f) {
-  const ks = (await caches.keys()).filter((k) => (k.startsWith('enfinlu-') || k.startsWith('belle-lurette-')) && k !== CACHE).reverse();
+  const ks = (await caches.keys()).filter(ancien).reverse();
   for (const k of ks) { const hit = await (await caches.open(k)).match(f, { ignoreSearch: true }); if (hit) return hit; }
   return null;
 }
 async function prendre(c, f) {
-  const ancien = await ancienneCopie(f);
-  if (ancien && PROG.test(f)) return c.put(f, ancien);
-  if (ancien) {
-    try { const r = await conditionnelle(f, ancien); if (r.status === 304) return c.put(f, ancien); if (r.ok) return c.put(f, r); } catch (er) {}
+  const vieux = await ancienneCopie(f);
+  if (vieux && PROG.test(f)) return c.put(f, vieux);
+  if (vieux) {
+    try { const r = await conditionnelle(f, vieux); if (r.status === 304) return c.put(f, vieux); if (r.ok) return c.put(f, r); } catch (er) {}
   }
-  const r = await fetch(new Request(f, { cache: 'reload' }));
+  // v104 : le cache du navigateur d'abord (cache: 'default') : à la première visite, la page vient de tout recevoir,
+  // inutile de tout retélécharger (avant : cache: 'reload', soit le livre et la page deux fois)
+  const r = await fetch(new Request(f, { cache: 'default' }));
   if (!r.ok) throw new Error(f + ' ' + r.status);
   return c.put(f, r);
 }
 
 // installation : les fichiers qui n'ont pas changé sont repris de la copie du téléphone
-// (avant, chaque mise à jour de l'appli retéléchargeait tout, dont les 5,6 Mo du livre)
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
     await Promise.all(FICHIERS.map((f) => prendre(c, f)));
+    await c.put('index.html', (await c.match('./')).clone());
     const p = progDe(await (await c.match('index.html')).text());
     if (p) await prendre(c, p);
     await self.skipWaiting();
   })());
 });
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => (k.startsWith('belle-lurette-') || k.startsWith('enfinlu-')) && k !== CACHE).map((k) => caches.delete(k))))
+  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter(ancien).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
@@ -89,6 +102,17 @@ self.addEventListener('fetch', (e) => {
     }));
     return;
   }
+  // v104 : les images des livres : la copie du téléphone si elle existe, sinon le réseau (et on la garde)
+  if (MEDIA.test(nom)) {
+    e.respondWith(caches.open(LIVRES).then(async (c) => {
+      const hit = await c.match(r, { ignoreSearch: true });
+      if (hit) return hit;
+      const res = await fetch(r);
+      if (res.ok) e.waitUntil(c.put(r, res.clone()).catch(() => {}));
+      return res;
+    }));
+    return;
+  }
   // la page, le manifeste, le catalogue et le livre de l'appli : la copie du téléphone tout de suite (l'appli s'ouvre
   // sans attendre le réseau), puis une vérification discrète auprès du site ; une nouvelle version est rangée et
   // sert à l'ouverture suivante
@@ -110,9 +134,9 @@ self.addEventListener('fetch', (e) => {
   // autres pages : le réseau, comme sans service worker
   if (r.mode === 'navigate' || /\.(html|json|webmanifest)$/.test(nom)) return;
   // polices et icônes : depuis le téléphone, puis mise à jour discrète
-  const garde = GARDES.has(nom);
+  const g = garde(nom);
   e.respondWith(caches.open(CACHE).then((c) => c.match(r, { ignoreSearch: true }).then((hit) => {
-    const net = fetch(r).then((res) => { if (res && res.ok && garde) e.waitUntil(c.put(r, res.clone())); return res; }).catch(() => hit);
+    const net = fetch(r).then((res) => { if (res && res.ok && g) e.waitUntil(c.put(r, res.clone())); return res; }).catch(() => hit);
     return hit || net;
   })));
 });
