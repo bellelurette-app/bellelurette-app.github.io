@@ -1,9 +1,10 @@
-/* Enfin lu : fonctionnement hors ligne, et ouverture immédiate (version 104) */
-const CACHE = 'enfinlu-v104';
+/* Enfin lu : fonctionnement hors ligne, et ouverture immédiate (version 105) */
+const CACHE = 'enfinlu-v105';
 // v104 : les images des livres ont des noms tirés de leur contenu (belami/3f2a….webp) : une image donnée ne change
 // jamais. Elles sont rangées à part, et gardées d'une version de l'appli à l'autre.
 const LIVRES = 'enfinlu-livres';
-const MEDIA = /^[0-9a-f]{16}\.(webp|png|jpg)$/;
+// v105 : le dictionnaire de chaque livre est lui aussi un fichier nommé d'après son contenu (belami/<empreinte>.json)
+const MEDIA = /^[0-9a-f]{16}\.(webp|png|jpg|json)$/;
 // v104 : ni les grandes icônes (le navigateur les prend lui-même à l'installation), ni les polices « latin-ext »
 // (caractères rares, chargées seulement si un texte en a besoin, puis gardées) : 0,7 Mo de moins à la première visite
 // la page est demandée une seule fois (« ./ ») puis rangée aussi sous « index.html »
